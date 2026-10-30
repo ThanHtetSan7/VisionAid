@@ -9,16 +9,11 @@ final class CameraManager: NSObject {
     private let sessionQueue = DispatchQueue(label: "visionaid.session")
     private let frameQueue = DispatchQueue(label: "visionaid.frames", qos: .userInitiated)
     private var isConfigured = false
-    private var device: AVCaptureDevice?
+    private var input: AVCaptureDeviceInput?
+    private var useUltraWide = false
 
     /// Field of view in degrees across the long side of the frame, used for bearing and distance.
-    var fieldOfView: Double {
-        guard let d = device else { return 70 }
-        let format = d.activeFormat
-        return Double(d.isGeometricDistortionCorrectionEnabled
-                      ? format.geometricDistortionCorrectedVideoFieldOfView
-                      : format.videoFieldOfView)
-    }
+    private(set) var fieldOfView: Double = 70
 
     /// Asks for camera permission. Returns false if the user refused.
     func requestAccess() async -> Bool {
@@ -42,20 +37,27 @@ final class CameraManager: NSObject {
         }
     }
 
+    /// Switches between the ultra-wide (0.5x, sees more) and main (1x, detects better) cameras.
+    func setUltraWide(_ on: Bool) {
+        sessionQueue.async {
+            guard on != self.useUltraWide || !self.isConfigured else { return }
+            self.useUltraWide = on
+            guard self.isConfigured else { return }
+            self.session.beginConfiguration()
+            if let old = self.input { self.session.removeInput(old) }
+            self.addCamera()
+            self.applyPortraitRotation()
+            self.session.commitConfiguration()
+        }
+    }
+
     private func configure() {
         session.beginConfiguration()
         defer { session.commitConfiguration() }
 
         // 720p is plenty for a 640x640 model and keeps processing cheap.
         session.sessionPreset = .hd1280x720
-
-        // Ultra-wide (0.5x) sees more of the path; fall back to the main camera on older phones.
-        guard let camera = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back)
-                ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-              let input = try? AVCaptureDeviceInput(device: camera),
-              session.canAddInput(input) else { return }
-        session.addInput(input)
-        device = camera
+        guard addCamera() else { return }
 
         output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         // Drop frames that arrive while the model is still busy, so alerts never lag behind reality.
@@ -64,15 +66,36 @@ final class CameraManager: NSObject {
         guard session.canAddOutput(output) else { return }
         session.addOutput(output)
 
-        // Rotate buffers to portrait so the model sees the scene upright (phone is chest-mounted, portrait).
-        if let connection = output.connection(with: .video) {
-            if #available(iOS 17.0, *) {
-                if connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
-            } else if connection.isVideoOrientationSupported {
-                connection.videoOrientation = .portrait
-            }
-        }
+        applyPortraitRotation()
         isConfigured = true
+    }
+
+    /// Adds the chosen back camera; ultra-wide falls back to the main camera on phones without one.
+    @discardableResult
+    private func addCamera() -> Bool {
+        let wide = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        let camera = useUltraWide
+            ? AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back) ?? wide
+            : wide
+        guard let camera,
+              let newInput = try? AVCaptureDeviceInput(device: camera),
+              session.canAddInput(newInput) else { return false }
+        session.addInput(newInput)
+        input = newInput
+
+        let format = camera.activeFormat
+        fieldOfView = Double(camera.isGeometricDistortionCorrectionEnabled
+                             ? format.geometricDistortionCorrectedVideoFieldOfView
+                             : format.videoFieldOfView)
+        return true
+    }
+
+    /// Rotates buffers to portrait so the model sees the scene upright (phone is chest-mounted, portrait).
+    /// Must be reapplied after changing inputs, because the connection is rebuilt.
+    private func applyPortraitRotation() {
+        if let connection = output.connection(with: .video), connection.isVideoRotationAngleSupported(90) {
+            connection.videoRotationAngle = 90
+        }
     }
 }
 

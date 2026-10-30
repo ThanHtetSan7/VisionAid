@@ -1,13 +1,12 @@
 import CoreML
 import Vision
 
-/// Runs a YOLOv8 Core ML model (exported with NMS) on camera frames.
+/// Runs a YOLO Core ML model (exported with NMS) on camera frames.
 final class ObstacleDetector {
     enum ModelSize: String, CaseIterable, Identifiable {
-        case nano = "yolov8n"
-        case small = "yolov8s"
+        case yolo11s, yolo11m
         var id: String { rawValue }
-        var title: String { self == .nano ? "YOLOv8n" : "YOLOv8s" }
+        var title: String { rawValue.replacingOccurrences(of: "yolo", with: "YOLO") }
     }
 
     enum LoadError: LocalizedError {
@@ -23,8 +22,26 @@ final class ObstacleDetector {
     private var request: VNCoreMLRequest?
     private let lock = NSLock()
 
-    var confidenceThreshold: Double = 0.4 { didSet { applyThresholds() } }
-    var iouThreshold: Double = 0.45 { didSet { applyThresholds() } }
+    /// Guards the user's filter settings separately, so changing them never waits on inference.
+    private let filterLock = NSLock()
+    private var _enabledLabels = Obstacles.defaultEnabled
+    private var _minConfidence: Float = 0.5
+
+    /// Classes to report; everything else is discarded.
+    var enabledLabels: Set<String> {
+        get { filterLock.withLock { _enabledLabels } }
+        set { filterLock.withLock { _enabledLabels = newValue } }
+    }
+
+    /// Detections below this confidence are discarded.
+    var minConfidence: Float {
+        get { filterLock.withLock { _minConfidence } }
+        set { filterLock.withLock { _minConfidence = newValue } }
+    }
+
+    /// Thresholds for the model's built-in NMS. Confidence stays low here; `minConfidence` does the real filtering.
+    private let nmsConfidence = 0.2
+    private let iouThreshold = 0.45
 
     func load(_ size: ModelSize) throws {
         // Xcode compiles .mlpackage into .mlmodelc inside the app bundle.
@@ -36,7 +53,9 @@ final class ObstacleDetector {
         let vnModel = try VNCoreMLModel(for: MLModel(contentsOf: url, configuration: config))
 
         let newRequest = VNCoreMLRequest(model: vnModel)
-        newRequest.imageCropAndScaleOption = .scaleFill
+        // Letterbox like YOLO's training images; stretching a 9:16 frame to a square distorts every object.
+        // Vision maps the boxes back to the full frame for us.
+        newRequest.imageCropAndScaleOption = .scaleFit
 
         lock.lock()
         model = vnModel
@@ -47,6 +66,8 @@ final class ObstacleDetector {
 
     /// Returns obstacle detections for one frame. Called on the camera's frame queue.
     func detect(_ pixelBuffer: CVPixelBuffer) -> [Detection] {
+        let (labels, minConfidence) = filterLock.withLock { (_enabledLabels, _minConfidence) }
+
         lock.lock()
         defer { lock.unlock() }
         guard let request else { return [] }
@@ -56,7 +77,9 @@ final class ObstacleDetector {
 
         let observations = request.results as? [VNRecognizedObjectObservation] ?? []
         return observations.compactMap { obs in
-            guard let top = obs.labels.first, Obstacles.priority[top.identifier] != nil else { return nil }
+            guard let top = obs.labels.first,
+                  top.confidence >= minConfidence,
+                  labels.contains(top.identifier) else { return nil }
             // Vision uses a bottom-left origin; flip to top-left for SwiftUI.
             let b = obs.boundingBox
             let box = CGRect(x: b.minX, y: 1 - b.maxY, width: b.width, height: b.height)
@@ -66,7 +89,7 @@ final class ObstacleDetector {
 
     private func applyThresholds() {
         lock.lock()
-        model?.featureProvider = ThresholdProvider(iou: iouThreshold, confidence: confidenceThreshold)
+        model?.featureProvider = ThresholdProvider(iou: iouThreshold, confidence: nmsConfidence)
         lock.unlock()
     }
 }

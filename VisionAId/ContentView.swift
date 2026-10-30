@@ -3,6 +3,7 @@ import AVFoundation
 
 struct ContentView: View {
     @State private var vm = DetectionViewModel()
+    @State private var showSettings = false
 
     var body: some View {
         ZStack {
@@ -23,6 +24,7 @@ struct ContentView: View {
         }
         .background(Color.black)
         .task { await vm.start() }
+        .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
         .alert("VisionAid", isPresented: Binding(
             get: { vm.errorMessage != nil },
             set: { if !$0 { vm.errorMessage = nil } }
@@ -34,7 +36,9 @@ struct ContentView: View {
     }
 
     private var statsBar: some View {
-        Text("\(vm.modelSize.title) · \(Int(vm.fps)) FPS · \(Int(vm.inferenceMs)) ms")
+        Text(vm.isLoadingModel
+             ? "Loading \(vm.modelSize.title)…"
+             : "\(vm.modelSize.title) · \(Int(vm.fps)) FPS · \(Int(vm.inferenceMs)) ms")
             .font(.system(.footnote, design: .monospaced))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
@@ -50,6 +54,17 @@ struct ContentView: View {
             .pickerStyle(.segmented)
 
             HStack(spacing: 12) {
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.title2)
+                        .frame(width: 64, height: 64)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.gray)
+                .accessibilityLabel("Settings")
+
                 Button {
                     vm.muted.toggle()
                 } label: {
@@ -119,6 +134,7 @@ struct DetectionOverlay: View {
                     .stroke(colour, lineWidth: 3)
                     .frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
+                    .opacity(d.inPath ? 1 : 0.35)
 
                 Text("\(d.label) \(d.distance.map { String(format: "%.1fm", $0) } ?? "") \(Int(d.angle))°")
                     .font(.caption.bold())
@@ -126,12 +142,13 @@ struct DetectionOverlay: View {
                     .padding(.horizontal, 4)
                     .background(colour)
                     .position(x: rect.minX + 50, y: max(rect.minY - 10, 10))
+                    .opacity(d.inPath ? 1 : 0.35)
             }
         }
     }
 
     private func color(for label: String) -> Color {
-        switch Obstacles.priority[label] ?? 1 {
+        switch Obstacles.risk(of: label) {
         case 3: return .red
         case 2: return .orange
         default: return .yellow

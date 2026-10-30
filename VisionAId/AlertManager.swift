@@ -3,11 +3,16 @@ import AVFoundation
 /// Turns detections into short spoken warnings, without repeating or overwhelming the user.
 final class AlertManager {
     var muted = false
-    /// Seconds before the same object in the same zone is announced again.
-    var cooldown: TimeInterval = 4
+    /// Only announce objects in the walking path, not everything in view.
+    var pathOnly = true
+    /// Seconds before the same object is announced again.
+    var cooldown: TimeInterval = 8
+    /// Quiet seconds kept between routine announcements.
+    var minimumGap: TimeInterval = 2
 
     private let synth = AVSpeechSynthesizer()
-    private var lastSpoken: [String: (time: Date, distance: Double)] = [:]
+    private var lastSpoken: [UUID: (time: Date, distance: Double, wasClose: Bool)] = [:]
+    private var lastUtterance = Date.distantPast
 
     init() {
         // .playback keeps speech audible with the silent switch on; ducks music instead of stopping it.
@@ -16,19 +21,20 @@ final class AlertManager {
         try? audio.setActive(true)
     }
 
-    /// Call on the main thread with the latest frame's located detections.
+    /// Call on the main thread with the latest frame's tracked detections.
     func process(_ detections: [Detection]) {
-        guard !muted,
-              let alert = detections.compactMap({ Alert($0) }).max(by: { $0.score < $1.score })
-        else { return }
-
-        // Debounce: skip if recently said, unless it has come at least 2 m closer.
+        guard !muted else { return }
         let now = Date()
-        if let last = lastSpoken[alert.key],
-           now.timeIntervalSince(last.time) < cooldown,
-           last.distance - alert.distance < 2 {
-            return
-        }
+
+        // Skip objects already announced, so they can't block the next most important one.
+        let alert = detections
+            .filter { !pathOnly || $0.inPath }
+            .compactMap { Alert($0) }
+            .filter { isDue($0, now: now) }
+            .max { $0.score < $1.score }
+        guard let alert else { return }
+
+        if !alert.isClose && now.timeIntervalSince(lastUtterance) < minimumGap { return }
 
         // Only interrupt current speech for a close, high-risk object.
         if synth.isSpeaking {
@@ -36,10 +42,20 @@ final class AlertManager {
             synth.stopSpeaking(at: .immediate)
         }
 
-        lastSpoken[alert.key] = (now, alert.distance)
+        lastSpoken = lastSpoken.filter { now.timeIntervalSince($0.value.time) < 30 }
+        lastSpoken[alert.id] = (now, alert.distance, alert.isClose)
+        lastUtterance = now
         let utterance = AVSpeechUtterance(string: alert.phrase)
         utterance.rate = 0.55
         synth.speak(utterance)
+    }
+
+    /// New objects are due. Known ones only after the cooldown, or if they became a bigger danger.
+    private func isDue(_ alert: Alert, now: Date) -> Bool {
+        guard let last = lastSpoken[alert.id] else { return true }
+        return now.timeIntervalSince(last.time) >= cooldown
+            || last.distance - alert.distance >= 2
+            || (alert.isClose && !last.wasClose)
     }
 
     func stop() {
@@ -53,19 +69,25 @@ private struct Alert {
              right = "slightly right", farRight = "on your right"
     }
 
+    let id: UUID
     let label: String
     let zone: Zone
+    /// Nil for classes whose real-world size is unknown.
+    let measured: Double?
+    /// Distance used for ranking and debouncing; unknown counts as far away.
     let distance: Double
     let priority: Int
     let score: Double
 
     init?(_ d: Detection) {
-        guard let p = Obstacles.priority[d.label] else { return nil }
         let dist = d.distance ?? Obstacles.maxDistance
         guard dist <= Obstacles.maxDistance else { return nil }
 
+        let p = Obstacles.risk(of: d.label)
+        id = d.id
         label = d.label
         priority = p
+        measured = d.distance
         distance = dist
         switch d.angle {
         case ..<(-20.0): zone = .farLeft
@@ -78,14 +100,16 @@ private struct Alert {
         score = Double(p) * 10 + (Obstacles.maxDistance - dist) + (zone == .ahead ? 3 : 0)
     }
 
-    var isClose: Bool { distance <= Obstacles.closeDistance }
-    var key: String { "\(label)-\(zone.rawValue)" }
+    var isClose: Bool { (measured ?? .infinity) <= Obstacles.closeDistance }
 
     var phrase: String {
         let raw = Obstacles.spokenName[label] ?? label
         let name = raw.prefix(1).uppercased() + raw.dropFirst()
-        let metres = max(1, Int(distance.rounded()))
-        let base = "\(name) \(zone.rawValue), \(metres) \(metres == 1 ? "metre" : "metres")"
+        var base = "\(name) \(zone.rawValue)"
+        if let measured {
+            let metres = max(1, Int(measured.rounded()))
+            base += ", \(metres) \(metres == 1 ? "metre" : "metres")"
+        }
         return isClose ? "Caution, \(base)" : base
     }
 }
