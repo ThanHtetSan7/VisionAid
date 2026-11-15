@@ -66,7 +66,7 @@ The results of the walk tests are in [`test-results/2026-11-11-walk-tests/`](tes
 - `chart_*.png`: charts of the results.
 - `scripts/`: the scripts used to extract the data and draw the charts.
 
-The screen recordings themselves are not included because of their size.
+The screen recordings are not included because they show members of the public; they are kept privately and will be deleted after marking.
 
 ## Licence
 
