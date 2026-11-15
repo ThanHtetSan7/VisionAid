@@ -31,7 +31,7 @@ Four screen recordings of VisionAid running on an iPhone 15 while walking along 
 
 | File | Contents |
 |---|---|
-| `summary.csv` | One row per video: the results above plus counts |
+| `DataSummary.csv` | One row per video: the results above plus counts |
 | `per_second.csv` | One row per second of each video: date, clock, battery, FPS, inference ms, labels read, labels shown as in path, share of the second spent speaking |
 | `labels.csv` | Every on-screen box label read in full: object, distance (m), angle (°), risk level, solid (in path) or faded, position on screen |
 | `speech.csv` | Start, end and length of each spoken warning |

@@ -61,7 +61,7 @@ Xcode compiles the `.mlpackage` files into the app automatically.
 
 The results of the walk tests are in [`test-results/2026-11-11-walk-tests/`](test-results/2026-11-11-walk-tests/). The folder has its own README explaining how the data was collected.
 
-- `summary.csv`, `per_second.csv`, `labels.csv` and `speech.csv`: performance and alert data read from screen recordings of four walks (inference time, FPS, battery, spoken warnings and on-screen labels).
+- `DataSummary.csv`, `per_second.csv`, `labels.csv` and `speech.csv`: performance and alert data read from screen recordings of four walks (inference time, FPS, battery, spoken warnings and on-screen labels).
 - `TestData.csv`: detection results for the three 11 November walks, with true positives, false positives and false negatives for each object class.
 - `chart_*.png`: charts of the results.
 - `scripts/`: the scripts used to extract the data and draw the charts.

@@ -16,7 +16,7 @@ plt.rcParams.update({"font.family": "Helvetica Neue", "font.size": 11, "text.col
                      "axes.facecolor": SURFACE, "savefig.facecolor": SURFACE})
 XMAX = 9.8
 per = list(csv.DictReader(open(d / "per_second.csv")))
-summ = {r["video"]: r for r in csv.DictReader(open(d / "summary.csv"))}
+summ = {r["video"]: r for r in csv.DictReader(open(d / "DataSummary.csv"))}
 
 def rolling(xs, ys, window):
     out = []

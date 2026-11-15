@@ -99,5 +99,5 @@ for name, model, camera, date, version in VIDEOS:
 def write(fn, rows):
     with open(out / fn, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
-write("summary.csv", summary); write("per_second.csv", per_sec); write("labels.csv", labels); write("speech.csv", utter)
+write("DataSummary.csv", summary); write("per_second.csv", per_sec); write("labels.csv", labels); write("speech.csv", utter)
 for s in summary: print(s)
