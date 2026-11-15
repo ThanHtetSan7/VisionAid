@@ -1,0 +1,33 @@
+YOLOv11m_ultrawidecamera,TP,FP,FN
+Person,12,0,0
+Car,17,0,1
+Bicycle,0,2,0
+Bench,0,5,0
+Bus,1,1,0
+Truck,2,1,1
+Firehydrant,0,2,0
+Train,0,1,0
+Parking meter,1,0,0
+Total,33,12,2
+,,,
+YOLOv11m_maincamera,TP,FP,FN
+Person,4,0,0
+Car,17,0,0
+Bench,0,1,0
+Bus,0,1,0
+Truck,1,0,1
+Train,0,1,0
+Parking meter,2,0,0
+Dog,1,0,0
+Total,25,3,1
+,,,
+YOLOv11s_maincamera,TP,FP,FN
+Person,3,1,0
+Car,19,0,0
+Bench,0,1,0
+Bus,1,1,0
+Truck,1,0,1
+Firehydrant,0,1,0
+Parking meter,1,1,1
+Motorbike,0,1,0
+Total,25,6,2
